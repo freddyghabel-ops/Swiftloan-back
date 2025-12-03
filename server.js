@@ -16,7 +16,7 @@ const receiptsFile = path.join(__dirname, "receipts.json");
 app.use(bodyParser.json());
 app.use(
   cors({
-    origin: "https://swiftfinance.onrender.com"
+    origin: "https://swiftfinanceke.onrender.com"
   })
 );
 
@@ -59,7 +59,7 @@ app.post("/pay", async (req, res) => {
       phone_number: formattedPhone,
       external_reference: reference,
       customer_name: "Customer",
-      callback_url: "https://swiftloanbackend.onrender.com/callback",
+      callback_url: "https://swiftloanback.onrender.com/callback",
       channel_id: "000235"
     };
 
