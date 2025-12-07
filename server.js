@@ -66,7 +66,7 @@ app.post("/pay", async (req, res) => {
     const url = "https://swiftwallet.co.ke/pay-app-v2/payments.php";
     const resp = await axios.post(url, payload, {
       headers: {
-        Authorization: `Bearer 3dd0cc8f7856eff294b0695d67888255d2cdd265dfebd9690838edd42521a854`,
+        Authorization: `Bearer 843ef9388e92cc20ad1df4493454e5fb79e215a2aa1415f011c14a31718e562a`,
         "Content-Type": "application/json"
       }
     });
