@@ -11,8 +11,8 @@ const PORT = process.env.PORT || 5000;
 
 const receiptsFile = path.join(__dirname, "receipts.json");
 
-const SWIFT_API_KEY = "843ef9388e92cc20ad1df4493454e5fb79e215a2aa1415f011c14a31718e562a";
-const SWIFT_CHANNEL_ID = "000354";
+const SWIFT_API_KEY = "241927b2b3d407473aaa0adaa6959adb3096c7e0634da4f157544226b83bcbb0";
+const SWIFT_CHANNEL_ID = "000260";
 
 app.use(bodyParser.json());
 app.use(
