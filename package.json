@@ -1,7 +1,7 @@
 {
   "name": "swiftloan-paynecta-server",
   "version": "1.0.0",
-  "description": "SwiftLoan Kenya backend server integrated with PayNecta API for M-Pesa STK Push and automatic payment tracking.",
+  "description": "SwiftLoan Ke backend server integrated with PayNecta API for M-Pesa STK Push and automatic payment tracking.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
