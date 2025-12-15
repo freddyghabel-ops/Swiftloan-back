@@ -1,4 +1,3 @@
-// server.js - PayNecta backend compatible with SwiftWallet frontend
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
@@ -6,181 +5,123 @@ const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const PDFDocument = require("pdfkit");
-const cron = require("node-cron");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 
-// ====== Configuration - update env or keep these for testing ======
-const PAYNECTA_EMAIL = process.env.PAYNECTA_EMAIL || "ceofreddy254@gmail.com";
-const PAYNECTA_API_KEY = process.env.PAYNECTA_API_KEY || "hmp_TNqol5hATwktT39RRtC3Kt5ZoItu1aUqpsX4TZP5";
-const PAYNECTA_CODE = process.env.PAYNECTA_CODE || "PNT_609202";
-
-// The callback URL PayNecta will call (use your tested backend domain)
-const CALLBACK_URL = process.env.CALLBACK_URL || "https://swiftloan-back.onrender.com/callback";
-
-// JSON storage file for receipts
+/// JSON storage file for receipts
 const receiptsFile = path.join(__dirname, "receipts.json");
-
-// CORS origin: keep frontend intact
-const FRONTEND_ORIGIN = "https://smartfundke.onrender.com";
 
 // Middleware
 app.use(bodyParser.json());
 app.use(
   cors({
-    origin: FRONTEND_ORIGIN
+    origin: "https://swiftfinanceke.onrender.com"
   })
 );
 
-// Helpers
+// Helpers for receipts
 function readReceipts() {
-  try {
-    if (!fs.existsSync(receiptsFile)) return {};
-    return JSON.parse(fs.readFileSync(receiptsFile));
-  } catch (err) {
-    console.error("readReceipts error:", err.message);
-    return {};
-  }
+  if (!fs.existsSync(receiptsFile)) return {};
+  return JSON.parse(fs.readFileSync(receiptsFile));
 }
-
 function writeReceipts(data) {
-  try {
-    fs.writeFileSync(receiptsFile, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("writeReceipts error:", err.message);
-  }
+  fs.writeFileSync(receiptsFile, JSON.stringify(data, null, 2));
 }
 
+// Phone formatter
 function formatPhone(phone) {
-  if (!phone) return null;
-  const digits = String(phone).replace(/\D/g, "");
+  const digits = phone.replace(/\D/g, "");
   if (digits.length === 9 && digits.startsWith("7")) return "254" + digits;
-  if (digits.length === 10 && digits.startsWith("07")) return "254" + digits.substring(1);
+  if (digits.length === 10 && digits.startsWith("07"))
+    return "254" + digits.substring(1);
   if (digits.length === 12 && digits.startsWith("254")) return digits;
   return null;
 }
 
-// ---------- 1. /pay - initiate payment using PayNecta (STK Push) ----------
+// 1️⃣ Initiate Payment
 app.post("/pay", async (req, res) => {
   try {
     const { phone, amount, loan_amount } = req.body;
     const formattedPhone = formatPhone(phone);
 
-    if (!formattedPhone) return res.status(400).json({ success: false, error: "Invalid phone format" });
-    if (!amount || amount < 1) return res.status(400).json({ success: false, error: "Amount must be >= 1" });
+    if (!formattedPhone) {
+      return res.status(400).json({ success: false, error: "Invalid phone format" });
+    }
+    if (!amount || amount < 1) {
+      return res.status(400).json({ success: false, error: "Amount must be >= 1" });
+    }
 
     const reference = "ORDER-" + Date.now();
 
-    // PayNecta initialize payload
     const payload = {
-      code: PAYNECTA_CODE,
-      mobile_number: formattedPhone,
       amount: Math.round(amount),
-      // Note: PayNecta docs didn't show external_reference in initialize; we still attach our reference locally.
+      phone_number: formattedPhone,
+      external_reference: reference,
+      customer_name: "Customer",
+      callback_url: "https://swiftloanback.onrender.com/callback",
+      channel_id: "000381"
     };
 
-    // Call PayNecta STK push initialize
-    const resp = await axios.post("https://paynecta.co.ke/api/v1/payment/initialize", payload, {
+    const url = "https://swiftwallet.co.ke/pay-app-v2/payments.php";
+    const resp = await axios.post(url, payload, {
       headers: {
-        "X-API-Key": PAYNECTA_API_KEY,
-        "X-User-Email": PAYNECTA_EMAIL,
+        Authorization: `Bearer b4f8a616e0b39e99e905930e0ee613c3310bcc0ce8c4fd2db2747a327bea0ed1`,
         "Content-Type": "application/json"
-      },
-      timeout: 15000
+      }
     });
 
-    console.log("PayNecta initialize response:", resp.data);
+    console.log("SwiftWallet response:", resp.data);
 
-    const receipts = readReceipts();
-
-    if (resp.data && resp.data.success) {
-      const transaction_reference = resp.data.data.transaction_reference || null;
-      // Create receipt in same shape as SwiftWallet
+    if (resp.data.success) {
+      // Save PENDING receipt
       const receiptData = {
         reference,
-        transaction_id: transaction_reference,
+        transaction_id: resp.data.transaction_id || null,
         transaction_code: null,
         amount: Math.round(amount),
         loan_amount: loan_amount || "50000",
         phone: formattedPhone,
         customer_name: "N/A",
-        status: "pending", // STK sent, awaiting completion
-        status_note: `STK push sent to ${formattedPhone}. Please enter your M-Pesa PIN to complete the fee payment and loan disbursement.`,
+        status: "pending",
+        status_note: `STK push  sent to ${formattedPhone}. Please enter your M-Pesa PIN to complete the fee payment and loan disbursement.Withdrawal started..... `,
         timestamp: new Date().toISOString()
       };
 
+      let receipts = readReceipts();
       receipts[reference] = receiptData;
       writeReceipts(receipts);
 
-      // Start polling PayNecta status endpoint (every 15s) for this transaction_reference
-      if (transaction_reference) {
-        const interval = setInterval(async () => {
-          try {
-            const url = `https://paynecta.co.ke/api/v1/payment/status?transaction_reference=${encodeURIComponent(transaction_reference)}`;
-            const statusResp = await axios.get(url, {
-              headers: {
-                "X-API-Key": PAYNECTA_API_KEY,
-                "X-User-Email": PAYNECTA_EMAIL
-              },
-              timeout: 10000
-            });
-
-            const payData = statusResp.data?.data || {};
-            const payStatus = (payData.status || "").toLowerCase();
-            console.log(`[${reference}] PayNecta poll status:`, payStatus);
-
-            const receiptsNow = readReceipts();
-            const current = receiptsNow[reference];
-            if (!current) {
-              clearInterval(interval);
-              return;
-            }
-
-            if (payStatus === "completed" || payStatus === "processing") {
-              current.status = "processing";
-              current.transaction_code = payData.mpesa_receipt_number || payData.mpesa_transaction_id || current.transaction_code;
-              current.amount = payData.amount || current.amount;
-              current.phone = payData.mobile_number || current.phone;
-              current.customer_name = current.customer_name || "N/A";
-              current.status_note = `✅ Your fee payment has been received and verified. Loan Reference: ${reference}. Loan processing started.`;
-              current.timestamp = new Date().toISOString();
-              writeReceipts(receiptsNow);
-              clearInterval(interval);
-            } else if (payStatus === "failed" || payStatus === "cancelled") {
-              current.status = "cancelled";
-              current.transaction_code = payData.mpesa_receipt_number || null;
-              current.status_note = payData.failure_reason || "Payment failed or cancelled.";
-              current.timestamp = new Date().toISOString();
-              writeReceipts(receiptsNow);
-              clearInterval(interval);
-            } // else still pending - continue polling
-          } catch (err) {
-            // Log error but keep polling; network or 404 will surface here if transaction not found.
-            console.log(`[${reference}] PayNecta poll error:`, err.response?.status || err.message);
-          }
-        }, 15000);
-      }
-
-      return res.json({ success: true, message: "STK push sent, check your phone", reference, receipt: receiptData });
-    } else {
-      // STK push failed to send - mimic swiftwallet behavior
-      const failedReceipt = {
+      res.json({
+        success: true,
+        message: "STK push sent, check your phone",
         reference,
-        transaction_id: resp.data?.data?.transaction_reference || null,
+        receipt: receiptData
+      });
+    } else {
+      // Handle failed STK push
+      const failedReceiptData = {
+        reference,
+        transaction_id: resp.data.transaction_id || null,
         transaction_code: null,
         amount: Math.round(amount),
         loan_amount: loan_amount || "50000",
         phone: formattedPhone,
         customer_name: "N/A",
         status: "stk_failed",
-        status_note: resp.data?.message || "STK push failed to send. Please try again or contact support.",
+        status_note: "STK push failed to send. Please try again or contact support.",
         timestamp: new Date().toISOString()
       };
 
-      receipts[reference] = failedReceipt;
+      let receipts = readReceipts();
+      receipts[reference] = failedReceiptData;
       writeReceipts(receipts);
-      return res.status(400).json({ success: false, error: resp.data?.message || "Failed to initiate payment", receipt: failedReceipt });
+
+      res.status(400).json({
+        success: false,
+        error: resp.data.error || "Failed to initiate payment",
+        receipt: failedReceiptData
+      });
     }
   } catch (err) {
     console.error("Payment initiation error:", {
@@ -206,146 +147,122 @@ app.post("/pay", async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
-    const receipts = readReceipts();
+    let receipts = readReceipts();
     receipts[reference] = errorReceiptData;
     writeReceipts(receipts);
 
-    return res.status(500).json({ success: false, error: err.response?.data?.message || err.message || "Server error", receipt: errorReceiptData });
+    res.status(500).json({
+      success: false,
+      error: err.response?.data?.error || err.message || "Server error",
+      receipt: errorReceiptData
+    });
   }
 });
 
-// ---------- 2. /callback - webhook handler (PayNecta or aggregator) ----------
+// 2️⃣ Callback handler
 app.post("/callback", (req, res) => {
-  console.log("Callback received:", JSON.stringify(req.body).slice(0, 1000)); // truncated log
+  console.log("Callback received:", req.body);
 
   const data = req.body;
-
-  // PayNecta's sample uses 'external_reference' or 'transaction_reference' in different payloads.
-  // Accept multiple possible fields to remain compatible.
-  const refCandidates = [
-    data.external_reference,
-    data.transaction_reference,
-    data.reference,
-    data.data?.transaction_reference,
-    data.data?.external_reference
-  ].filter(Boolean);
-
-  const ref = refCandidates[0]; // use first found
-  if (!ref) {
-    // If PayNecta doesn't include our ORDER- reference, we may need mapping via transaction_reference -> order.
-    // Try to find local receipt by transaction_id matching transaction_reference
-    const receipts = readReceipts();
-    let foundKey = null;
-    const txRef = data.transaction_reference || data.data?.transaction_reference || data.data?.checkout_request_id;
-    if (txRef) {
-      for (const k of Object.keys(receipts)) {
-        if (receipts[k].transaction_id === txRef) {
-          foundKey = k;
-          break;
-        }
-      }
-    }
-    if (!foundKey) {
-      console.warn("Callback without external_reference & no transaction_reference mapping found");
-      return res.json({ success: false, message: "no reference provided" });
-    }
-    // set ref to foundKey
-    processWebhookForRef(foundKey, data);
-    return res.json({ ResultCode: 0, ResultDesc: "Success" });
-  }
-
-  processWebhookForRef(ref, data);
-  return res.json({ ResultCode: 0, ResultDesc: "Success" });
-});
-
-function processWebhookForRef(ref, data) {
+  const ref = data.external_reference;
   let receipts = readReceipts();
-  const existing = receipts[ref] || {};
+  const existingReceipt = receipts[ref] || {};
 
-  // Normalize data extraction
-  const payData = data.data || data; // some webhooks wrap payload in data
-  const status = (payData.status || "").toLowerCase();
-  const mpesaReceipt = payData.mpesa_receipt_number || payData.mpesa_transaction_id || payData.result?.MpesaReceiptNumber || null;
-  const amount = payData.amount || payData.result?.Amount || existing.amount;
-  const phone = payData.mobile_number || payData.result?.Phone || existing.phone;
-  const resultCode = payData.result?.ResultCode || payData.result_code || null;
+  const status = data.status?.toLowerCase();
+  const resultCode = data.result?.ResultCode;
 
-  // Customer name if present
+  // Capture customer name
   const customerName =
-    payData.name ||
-    payData.result?.Name ||
-    [payData.result?.FirstName, payData.result?.MiddleName, payData.result?.LastName].filter(Boolean).join(" ") ||
-    existing.customer_name ||
+    data.result?.Name ||
+    [data.result?.FirstName, data.result?.MiddleName, data.result?.LastName].filter(Boolean).join(" ") ||
+    existingReceipt.customer_name ||
     "N/A";
 
-  if ((status === "completed" && (payData.success === true || resultCode === 0)) || resultCode === 0) {
-    receipts[ref] = {
-      ...existing,
-      reference: ref,
-      transaction_id: existing.transaction_id || payData.transaction_reference || payData.transaction_id || null,
-      transaction_code: mpesaReceipt || existing.transaction_code,
-      amount,
-      loan_amount: existing.loan_amount || "50000",
-      phone,
-      customer_name: customerName,
-      status: "processing",
-      status_note: `✅ Your fee payment has been received and verified. Loan Reference: ${ref}. Loan processing started.`,
-      timestamp: payData.paid_at || payData.completed_at || new Date().toISOString()
-    };
-  } else {
-    // Choose friendly status message from result / failure reason
-    let statusNote = payData.failure_reason || payData.result?.ResultDesc || "Payment failed or was cancelled.";
+  if ((status === "completed" && data.success === true) || resultCode === 0) {
+  receipts[ref] = {
+    ...existingReceipt,
+    reference: ref,
+    transaction_id: data.transaction_id,
+    transaction_code: data.result?.MpesaReceiptNumber || null,
+    amount: data.result?.Amount || existingReceipt.amount,
+    loan_amount: existingReceipt.loan_amount || "50000",
+    phone: data.result?.Phone || existingReceipt.phone,
+    customer_name: customerName,
+    status: "processing",   // ✅ money confirmed, loan processing
+    status_note: `✅ Your fee payment has been received and verified.  
+Loan Reference: ${ref}.  
+Your loan is now in the final processing stage and funds are reserved for disbursement.  
+You will receive the amount in your selected account within 24 hours ,an sms will be sent to you.
+Thank you for choosing SwiftLoan Kenya.`,
+    timestamp: data.timestamp || new Date().toISOString(),
+  };
+   } else {
+  // Default note from Safaricom / aggregator
+  let statusNote = data.result?.ResultDesc || "Payment failed or was cancelled.";
 
-    // Check for common result codes (if provided)
-    switch (resultCode) {
-      case 1032:
-        statusNote = "You cancelled the payment request on your phone. Please try again.";
-        break;
-      case 1037:
-        statusNote = "The request timed out. You did not enter your M-Pesa PIN. Please try again.";
-        break;
-      case 2001:
-        statusNote = "Payment failed due to insufficient M-Pesa balance. Please top up and try again.";
-        break;
-      default:
-        // leave statusNote as-is
-        break;
-    }
+  // Use ResultCode to give friendlier messages
+  switch (data.result?.ResultCode) {
+    case 1032: // Cancelled by user
+      statusNote = "You  cancelled the payment request on your phone. Please try again to complete your loan withdrawal.if you had an issue contact us using the chat blue button at the left side of your phone screen for quick help.";
+      break;
 
-    receipts[ref] = {
-      reference: ref,
-      transaction_id: existing.transaction_id || payData.transaction_reference || null,
-      transaction_code: mpesaReceipt || null,
-      amount,
-      loan_amount: existing.loan_amount || "50000",
-      phone,
-      customer_name: customerName,
-      status: "cancelled",
-      status_note: statusNote,
-      timestamp: payData.failed_at || new Date().toISOString()
-    };
+    case 1037: // STK Push timeout (no PIN entered)
+      statusNote = "The request timed out. You did not enter your M-Pesa PIN to complete withdrawal request. Please try again.";
+      break;
+
+    case 2001: // Insufficient balance
+      statusNote = "Payment failed due to insufficient M-Pesa balance. Please top up and try to withdraw again.";
+      break;
+
+    default:
+      // Leave statusNote as provided by API
+      break;
   }
 
-  writeReceipts(receipts);
+  receipts[ref] = {
+    reference: ref,
+    transaction_id: data.transaction_id,
+    transaction_code: null,
+    amount: data.result?.Amount || existingReceipt.amount || null,
+    loan_amount: existingReceipt.loan_amount || "50000",
+    phone: data.result?.Phone || existingReceipt.phone || null,
+    customer_name: customerName,
+    status: "cancelled",
+    status_note: statusNote,
+    timestamp: data.timestamp || new Date().toISOString(),
+  };
 }
 
-// ---------- 3. GET /receipt/:reference ----------
+  writeReceipts(receipts);
+
+  res.json({ ResultCode: 0, ResultDesc: "Success" });
+});
+
+// 3️⃣ Fetch receipt
 app.get("/receipt/:reference", (req, res) => {
   const receipts = readReceipts();
   const receipt = receipts[req.params.reference];
-  if (!receipt) return res.status(404).json({ success: false, error: "Receipt not found" });
+
+  if (!receipt) {
+    return res.status(404).json({ success: false, error: "Receipt not found" });
+  }
+
   res.json({ success: true, receipt });
 });
 
-// ---------- 4. GET /receipt/:reference/pdf ----------
+// 4️⃣ PDF receipt (always available)
 app.get("/receipt/:reference/pdf", (req, res) => {
   const receipts = readReceipts();
   const receipt = receipts[req.params.reference];
-  if (!receipt) return res.status(404).json({ success: false, error: "Receipt not found" });
+
+  if (!receipt) {
+    return res.status(404).json({ success: false, error: "Receipt not found" });
+  }
+
   generateReceiptPDF(receipt, res);
 });
 
-// ---------- PDF generator (same style as SwiftWallet) ----------
+// ✅ PDF generator
 function generateReceiptPDF(receipt, res) {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename=receipt-${receipt.reference}.pdf`);
@@ -353,36 +270,51 @@ function generateReceiptPDF(receipt, res) {
   const doc = new PDFDocument({ margin: 50 });
   doc.pipe(res);
 
+  // Pick header + watermark by status
   let headerColor = "#2196F3";
   let watermarkText = "";
   let watermarkColor = "green";
 
   if (receipt.status === "success") {
-    watermarkText = "PAID";
-  } else if (["cancelled", "error", "stk_failed"].includes(receipt.status)) {
-    headerColor = "#f44336";
-    watermarkText = "FAILED";
-    watermarkColor = "red";
-  } else if (receipt.status === "pending") {
-    headerColor = "#ff9800";
-    watermarkText = "PENDING";
-    watermarkColor = "gray";
-  } else if (receipt.status === "processing") {
-    headerColor = "#2196F3";
-    watermarkText = "PROCESSING - FUNDS RESERVED";
-    watermarkColor = "blue";
-  } else if (receipt.status === "loan_released") {
-    headerColor = "#4caf50";
-    watermarkText = "RELEASED";
-    watermarkColor = "green";
-  }
+  headerColor = "#2196F3";    // Blue
+  watermarkText = "PAID";
+  watermarkColor = "green";
 
+} else if (["cancelled", "error", "stk_failed"].includes(receipt.status)) {
+  headerColor = "#f44336";    // Red
+  watermarkText = "FAILED";
+  watermarkColor = "red";
+
+} else if (receipt.status === "pending") {
+  headerColor = "#ff9800";    // Orange
+  watermarkText = "PENDING";
+  watermarkColor = "gray";
+
+} else if (receipt.status === "processing") {
+  headerColor = "#2196F3";    // Blue (Info look)
+  watermarkText = "PROCESSING - FUNDS RESERVED";
+  watermarkColor = "blue";
+
+} else if (receipt.status === "loan_released") {
+  headerColor = "#4caf50";    // Green
+  watermarkText = "RELEASED";
+  watermarkColor = "green";
+}
+
+  // Header
   doc.rect(0, 0, doc.page.width, 80).fill(headerColor);
-  doc.fillColor("white").fontSize(24).text("⚡ SWIFTLOAN KENYA LOAN RECEIPT", 50, 25, { align: "left" });
-  doc.fontSize(12).text("Loan & Payment Receipt", 50, 55);
+  doc
+    .fillColor("white")
+    .fontSize(24)
+    .text("⚡ SWIFTLOAN KENYA LOAN RECEIPT", 50, 25, { align: "left" })
+    .fontSize(12)
+    .text("Loan & Payment Receipt", 50, 55);
 
   doc.moveDown(3);
-  doc.fillColor("black").fontSize(14).text("Receipt Details", { underline: true }).moveDown();
+
+  // Receipt details
+  doc.fillColor("black").fontSize(14).text("Receipt Details", { underline: true });
+  doc.moveDown();
 
   const details = [
     ["Reference", receipt.reference],
@@ -393,51 +325,39 @@ function generateReceiptPDF(receipt, res) {
     ["Phone", receipt.phone],
     ["Customer Name", receipt.customer_name || "N/A"],
     ["Status", receipt.status.toUpperCase()],
-    ["Time", new Date(receipt.timestamp).toLocaleString()]
+    ["Time", new Date(receipt.timestamp).toLocaleString()],
   ];
 
   details.forEach(([key, value]) => {
-    doc.fontSize(12).text(`${key}: `, { continued: true }).text(String(value));
+    doc.fontSize(12).text(`${key}: `, { continued: true }).text(value);
   });
 
   doc.moveDown();
+
   if (receipt.status_note) {
     doc.fontSize(12).fillColor("#555").text("Note:", { underline: true }).moveDown(0.5).text(receipt.status_note);
   }
 
+  // Watermark
   if (watermarkText) {
-    doc.fontSize(60).fillColor(watermarkColor).opacity(0.2)
+    doc
+      .fontSize(60)
+      .fillColor(watermarkColor)
+      .opacity(0.2)
       .rotate(-30, { origin: [300, 400] })
       .text(watermarkText, 150, 400, { align: "center" })
       .rotate(30, { origin: [300, 400] })
       .opacity(1);
   }
 
+  // Footer
   doc.moveDown(2);
-  doc.fontSize(10).fillColor("gray").text("⚡ SwiftLoan Kenya © 2025", { align: "center" });
+  doc.fontSize(10).fillColor("gray").text("⚡ SwiftLoan Kenya © 2024", { align: "center" });
 
   doc.end();
 }
 
-// ---------- Cron job: release loans after 24 hours ----------
-cron.schedule("*/5 * * * *", () => {
-  const receipts = readReceipts();
-  const now = Date.now();
-  for (const ref in receipts) {
-    const r = receipts[ref];
-    if (r.status === "processing") {
-      const releaseTime = new Date(r.timestamp).getTime() + 24 * 60 * 60 * 1000;
-      if (now >= releaseTime) {
-        r.status = "loan_released";
-        r.status_note = "Loan has been released to your account. Thank you.";
-        console.log(`✅ Released loan for ${ref}`);
-      }
-    }
-  }
-  writeReceipts(receipts);
-});
-
-// ---------- Start server ----------
+// 5️⃣ Start server
 app.listen(PORT, () => {
-  console.log(`🚀 PayNecta-compatible server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
