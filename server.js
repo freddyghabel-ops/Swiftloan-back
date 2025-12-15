@@ -13,8 +13,8 @@ const PORT = process.env.PORT || 3000;
 
 // ====== Configuration - update env or keep these for testing ======
 const PAYNECTA_EMAIL = process.env.PAYNECTA_EMAIL || "ceofreddy254@gmail.com";
-const PAYNECTA_API_KEY = process.env.PAYNECTA_API_KEY || "hmp_TNqol5hATwktT39RRtC3Kt5ZoItu1aUqpsX4TZP5";
-const PAYNECTA_CODE = process.env.PAYNECTA_CODE || "PNT_609202";
+const PAYNECTA_API_KEY = process.env.PAYNECTA_API_KEY || "hmp_d3gX8TbLHFpYWhkI4w9ijXzGP1mRhvMiWJ4ctYap";
+const PAYNECTA_CODE = process.env.PAYNECTA_CODE || "PNT_163736";
 
 // The callback URL PayNecta will call (use your tested backend domain)
 const CALLBACK_URL = process.env.CALLBACK_URL || "https://swiftloan-back.onrender.com/callback";
