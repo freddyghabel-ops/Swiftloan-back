@@ -1,20 +1,22 @@
 {
-  "name": "swiftloan-backend",
+  "name": "swiftloan-paynecta-server",
   "version": "1.0.0",
-  "description": "SwiftLoan Kenya backend using Swift Wallet v3 API",
+  "description": "SwiftLoan Kenya backend server integrated with PayNecta API for M-Pesa STK Push and automatic payment tracking.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
-  "keywords": ["loan", "mpesa", "swift-wallet"],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
+    "axios": "^1.6.7",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
-    "axios": "^1.6.0",
-    "pdfkit": "^0.13.0"
-  }
+    "express": "^4.18.2",
+    "pdfkit": "^0.15.0",
+    "node-cron": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "SwiftLoan Kenya",
+  "license": "MIT"
 }
